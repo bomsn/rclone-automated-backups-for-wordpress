@@ -100,7 +100,7 @@ update_definitions_state() {
 
     # Check if rclone is configured by listing remotes
     IS_RCLONE_CONFIGURED=false
-    if sudo rclone listremotes --long | grep -qE '^'; then
+    if sudo rclone listremotes --long 2>&1 | grep -qEv 'NOTICE:'; then
         IS_RCLONE_CONFIGURED=true
     fi
 
@@ -298,9 +298,7 @@ configure_rclone() {
 
     local configure_rclone=false
     # If there is an existing list of remotes, allow user to decide whether to configure rclone or not
-    rclone_listremotes_output=$(sudo rclone listremotes)
-    if [ -z "$output" ]; then
-
+    if sudo rclone listremotes --long 2>&1 | grep -qEv 'NOTICE:'; then
         # Add a title
         echo -e "${BOLD}${UNDERLINE}Re-configure rclone${RESET}"
 
@@ -310,7 +308,6 @@ configure_rclone() {
             configure_rclone=true
         fi
     else
-
         # Add a title
         echo -e "${BOLD}${UNDERLINE}Configure rclone${RESET}"
 
@@ -323,7 +320,7 @@ configure_rclone() {
         # Clear screen
         clear_screen "force"
         # Show a message
-        echo -e "${YELLOW}Starting rclone configuration process...${RESET}"
+        echo -e "${YELLOW}Initializing rclone configuration ...${RESET}"
         echo ""
         # Start the configuration
         sudo rclone config

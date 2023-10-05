@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #################################################################
-# A bash script to setup automated backups for your WordPress websites using rclone
+# A bash script to setup automated backups for your WordPress websites using rclone and wp-cli
 # By: Ali Khallad
 # URL: https://alikhallad.com | https://wpali.com
 # Tested on: Ubuntu 22.04
@@ -17,7 +17,7 @@ CRON_SCRIPTS_DIR="cron_scripts"
 TMP_DIR="$PWD/tmp"
 DEFINITIONS_FILE="definitions"
 LOG_FILE="$PWD/backup.log"
-CRON_FILE="/etc/cron.d/wp-automated-backups-by-wpali"
+CRON_FILE="/etc/cron.d/rclone-automated-backups-by-alikhallad"
 # Define ANSI color codes
 BOLD="\033[1m"
 UNDERLINE="\033[4m"
@@ -89,6 +89,7 @@ if command -v wp &>/dev/null; then
   echo -e "${GREEN}2. wp cli is available.${RESET}"
 else
   echo -e "${RED}2. wp cli is not available. Please install it before running the script.${RESET}"
+  echo -e "${RED}To install on Ubuntu: ${RESET}${BOLD}${RED}sudo apt-get install wp-cli${RESET}"
   echo ""
   exit 1
 fi
@@ -98,6 +99,7 @@ if command -v rclone &>/dev/null; then
   echo -e "${GREEN}3. rclone is available.${RESET}"
 else
   echo -e "${RED}3. rclone is not available. Please install it before running the script.${RESET}"
+  echo -e "${RED}To install from the official website: ${RESET}${BOLD}${RED}curl https://rclone.org/install.sh | sudo bash${RESET}"
   echo ""
   exit 1
 fi

@@ -1,6 +1,6 @@
-## WordPress Automated Backups (via Shell)
+## Rclone Automated Backups for WordPress
 
-Automate WordPress backups to various cloud storage providers using a simple and automated shell script.
+Automate WordPress backups to various cloud storage providers using rclone automation.
 
 ## Requirements
 - Sudo and SSH access to your server.
@@ -17,7 +17,7 @@ Follow these steps to set up automated WordPress backups:
 - Connect to your server via SSH: `ssh root@server.ip.address`
 - Download this repo zip file:
 
-     `sudo curl -LJO https://github.com/bomsn/wp-automated-backups/archive/refs/heads/master.zip`
+     `sudo curl -LJO https://github.com/bomsn/rclone-automated-backups-for-wordpress/archive/refs/heads/master.zip`
 
 - Unzip the file
 
@@ -29,7 +29,7 @@ Follow these steps to set up automated WordPress backups:
 
 - rename and cd into the project folder 
 
-     `mv wp-automated-backups-master wp-automated-backups && cd wp-automated-backups`
+     `mv rclone-automated-backups-for-wordpress-master rclone-automated-backups-for-wordpress && cd rclone-automated-backups-for-wordpress`
 
 - Run the initilization script
 

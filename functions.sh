@@ -414,7 +414,9 @@ collect_backup_settings() {
     read -p "$(echo -e "${BOLD}${BLUE}Enter folders to exclude (comma-separated eg; wp-admin, wp-includes; or leave empty for none): ${RESET}")" EXCLUDED_ITEMS
 
     # Collect the destination folder path
-    read -p "$(echo -e "${BOLD}${BLUE}Enter your remote backup folder name ( or full backup directory path on remote server if available): ${RESET}")" REMOTE_BACKUP_LOCATION
+    echo -e "${BLUE}- if using object based storage (eg; AWS S3, Google Cloud Storage..etc), the backup location should start with the 'bucket' name (eg; bucket/path/to/dir)${RESET}"
+    echo -e "${BLUE}- If using SFTP/FTP based storage, use the full path to your backup directory (eg; /home/user/backup_folder)${RESET}"
+    read -p "$(echo -e "${BOLD}${BLUE}Enter your backup location: ${RESET}")" REMOTE_BACKUP_LOCATION
 
     # If `$REMOTE_BACKUP_LOCATION` has a trailing slash, remove it
     if [[ -n "$REMOTE_BACKUP_LOCATION" && "$REMOTE_BACKUP_LOCATION" == */ ]]; then
@@ -739,7 +741,7 @@ sudo rm \${tmp_path}/\${db_filename}
 echo "[\${timestamp}] - Delete backups older than \${retention_period} days from remote location "\${rclone_remote}" using rclone" >> "$LOG_FILE"
 
 # Delete old backups from remote ( retention logic )
-sudo rclone delete \${rclone_remote}:\${remote_backup_location} --min-age \${retention_period}d
+sudo rclone delete --min-age \${retention_period}d "\${rclone_remote}":"\${remote_backup_location}"
 
 
 echo "[\${timestamp}] BACK UP FINISHED: $backup_frequency backup for \${domain} has completed successfully" >> "$LOG_FILE"
@@ -768,11 +770,16 @@ EOF
 
     else
         # Copy failed, display relevant errors
-        echo -e "${RED}The cron job has not been created, please reconfigure rclone correctly and try again.${RESET}"
-        read -p "$(echo -e "${BLUE}Would you like to restart rclone configuration? (y/n): ${RESET}")" rclone_reconfig
+        echo -e "${RED}Something went wrong, please make sure the selected rclone remote is correctly configured.${RESET}"
+        echo -e "${RED}Also note that if you're using object based storage, your backup location should start with a bucket name.${RESET}"
+        read -p "$(echo -e "${BLUE}Would you like to open rclone configuration screen? (y/n): ${RESET}")" rclone_reconfig
         if [ $rclone_reconfig == "y" ] || [ $rclone_reconfig == "yes" ]; then
             configure_rclone
             generate_backup_script
+            return
+        else
+            generate_backup_script
+            return
         fi
     fi
 }

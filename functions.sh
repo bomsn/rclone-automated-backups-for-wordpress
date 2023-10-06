@@ -635,7 +635,7 @@ else
 fi
 
 # Exit script on error, only if this is not a pre-restore backup
-if [ ${call_type} != "restore" ]; then
+if [ \${call_type} != "restore" ]; then
     set -e
 fi
 
@@ -700,7 +700,7 @@ db_name=\$(sudo -u "\${wp_owner}" -i -- wp config get DB_NAME --path="\${domain_
 db_filename=\${hash}_\${domain//./_}_\${db_name}_\${backup_date}.sql
 # We'll export the database and move it to our current directory as a 'tmp' file
 sudo -u "\${wp_owner}" -i -- wp db export "\${wp_owner_directory}/\${db_filename}" --path="\${domain_path}"
-mv "\${wp_owner_directory}/\${db_filename}" "\${tmp_path}/\${db_filename}"
+sudo mv "\${wp_owner_directory}/\${db_filename}" "\${tmp_path}/\${db_filename}"
 
 echo "[\${timestamp}] - Database exported and moved to: '\${tmp_path}/\${db_filename}'" >> "$LOG_FILE"
 
@@ -720,7 +720,7 @@ else
     sudo tar --transform 's,^\./,,' $excludes -czf "\${backup_filename}.tmp" -C "\${domain_path}/" . -C "\${tmp_path}/" "\${db_filename}"
 fi
 # Rename the temporary backup file to the actual name to indicate that the compression completed
-mv "\${backup_filename}.tmp" "\${backup_filename}"
+sudo mv "\${backup_filename}.tmp" "\${backup_filename}"
 
 echo "[\${timestamp}] - backup archive generated: "\${backup_filename}"" >> "$LOG_FILE"
 echo "[\${timestamp}] - Sending the backup file to remote location "\${rclone_remote}" using rclone" >> "$LOG_FILE"
@@ -966,7 +966,7 @@ manage_automated_backups() {
 
         # Ask the user for further actions (e.g., delete, enable, disable)
         if [ "$selected_backup_status" == "Active" ]; then
-            options=("Disable" "Delete" "View/restore remote backups" "Return to previous menu")
+            options=("Disable" "Delete" "View/restore remote backups" "Return to the previous menu")
         else
             options=("Enable" "Delete" "View/restore remote backups" "Return to the previous menu")
         fi
@@ -1008,7 +1008,7 @@ manage_automated_backups() {
                 read -p "$(echo -e "${BOLD}${RED}Choose an action (c: Confirm deletion, b: Bail out): ${RESET}")" confirm
                 if [ "$confirm" == "c" ]; then
                     # Remove the backup script file
-                    rm -f "$selected_backup_script"
+                    sudo rm -f "$selected_backup_script"
 
                     # Construct the cron pattern and remove the associated cron line from the specified cron file
                     cron_pattern="^${selected_backup_cron_expression//\*/\\*} .*$(basename "$selected_backup_script")"
@@ -1170,7 +1170,7 @@ manage_automated_backups() {
                     local wp_owner=$(sudo stat -c "%U" ${selected_backup_path})                                                # get WordPress folder owner
                     local sql_file=$(find "$selected_backup_path" -type f -name "*${selected_backup_hash}_*.sql" -print -quit) # find the sql file path
                     sudo -u "${wp_owner}" -i -- wp db import "${sql_file}" --path="${selected_backup_path}"                    # import db
-                    sudo rm "${selected_backup_path%/}"/"${sql_file}"                                                          # Delete the SQL file after it's been imported
+                    sudo rm "${sql_file}"                                                                                      # Delete the SQL file after it's been imported
                     # Show a success message
                     # restore_cursor_position
                     echo -e "${BOLD}${GREEN}'$selected_remote_backup'${RESET} ${GREEN}restoration has been completed.${RESET}"

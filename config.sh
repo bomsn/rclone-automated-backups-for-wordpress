@@ -74,7 +74,6 @@ fi
 ############################## AUTOMATED CHECKS TO VERIFY SYSTEM SETUP #############################
 ####################################################################################################
 
-echo ""
 # Check if the user has sudo privileges
 if sudo -n true 2>/dev/null; then
   echo -e "${GREEN}1. Current user has sudo privileges.${RESET}"

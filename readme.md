@@ -2,6 +2,8 @@
 
 Automate WordPress backups to various cloud storage providers using rclone automation.
 
+![Screenshot](/screenshot.png)
+
 ## Requirements
 - Sudo and SSH access to your server.
 - [wp-cli](https://wp-cli.org/) installed.

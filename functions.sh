@@ -578,7 +578,7 @@ generate_backup_script() {
     while [ $rclone_remote_valid == false ]; do
         sudo touch wpali.com.txt >/dev/null 2>&1
         # Run the rclone copy command and capture its exit code
-        sudo rclone copy wpali.com.txt "${rclone_remote_name}:${remote_backup_location}"
+        sudo rclone copy wpali.com.txt "${rclone_remote_name}":"${remote_backup_location}"
         exit_code=$?
 
         # Confirm the file has been created successfully on remote server
@@ -595,7 +595,7 @@ generate_backup_script() {
                 rclone_remote_valid=true
                 # Delete leftovers
                 sudo rm wpali.com.txt
-                sudo rclone delete "${rclone_remote_name}:${remote_backup_location}/wpali.com.txt"
+                sudo rclone delete "${rclone_remote_name}":"${remote_backup_location}wpali.com.txt"
             fi
         else
             # Copy failed, display relevant errors
@@ -1022,6 +1022,7 @@ manage_automated_backups() {
                 else
                     restore_cursor_position
                     echo -e "${BOLD}${YELLOW}'$selected_backup_name'${RESET} ${YELLOW}deletion has been aborted.${RESET}"
+                    echo ""
                 fi
                 ;;
             "View/restore remote backups")

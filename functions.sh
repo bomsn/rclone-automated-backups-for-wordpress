@@ -628,8 +628,8 @@ generate_backup_script() {
 #!/bin/bash
 
 # Define the call type, whether it's a pre-restore backup, or default backup
-if [ $# -ge 1 ]; then
-    call_type=$1
+if [ \$# -ge 1 ]; then
+    call_type=\$1
 else
     call_type="backup"
 fi
@@ -958,19 +958,16 @@ manage_automated_backups() {
 
     save_cursor_position
 
+    # Save the original PS3 value
+    local original_ps3="$PS3"
     while true; do
-
-        # Save the original PS3 value
-        local original_ps3="$PS3"
-        PS3="$(echo -e "${BOLD}${BLUE}Type the desired option number to continue: ${RESET}")"
-
         # Ask the user for further actions (e.g., delete, enable, disable)
+        options=("Enable" "Delete" "View/restore remote backups" "Return to the previous menu")
         if [ "$selected_backup_status" == "Active" ]; then
             options=("Disable" "Delete" "View/restore remote backups" "Return to the previous menu")
-        else
-            options=("Enable" "Delete" "View/restore remote backups" "Return to the previous menu")
         fi
 
+        PS3="$(echo -e "${BOLD}${BLUE}Type the desired option number to continue: ${RESET}")"
         select choice in "${options[@]}"; do
             case "$choice" in
             "Disable")
@@ -982,6 +979,7 @@ manage_automated_backups() {
                 clear_screen "force"
                 echo -e "${BOLD}${GREEN}'$selected_backup_name'${RESET} ${GREEN}has been disabled successfully.${RESET}"
                 manage_automated_backups "$selected_backup_index" # Reload this function with the current backup pre-selected
+                return
                 ;;
             "Enable")
                 echo "$selected_backup_cron_expression root /bin/bash $PWD/$selected_backup_script" >>"$CRON_FILE"
@@ -990,6 +988,7 @@ manage_automated_backups() {
                 clear_screen "force"
                 echo -e "${BOLD}${GREEN}'$selected_backup_name'${RESET} ${GREEN}has been enabled successfully.${RESET}"
                 manage_automated_backups "$selected_backup_index" # Reload this function with the current backup pre-selected
+                return
                 ;;
             "Delete")
                 echo ""
@@ -1043,8 +1042,9 @@ manage_automated_backups() {
                 # Check if the backup list is empty
                 if [ -z "$backup_list_output" ]; then
                     restore_cursor_position
-                    echo -e "${YELLOW}No backups found.${RESET}"
-                    continue # Restart the loop
+                    echo -e "${YELLOW}No remote backups found.${RESET}"
+                    echo ""
+                    break # break out of the select statement to restart the while loop
                 fi
 
                 # Capture the list of remote backup files
@@ -1110,13 +1110,13 @@ manage_automated_backups() {
                 if [[ ! "$restore_choice" =~ ^[0-9]+$ ]] || [ "$restore_choice" -lt 1 ] || [ "$restore_choice" -gt "${#remote_backup_lines[@]}" ]; then
                     restore_cursor_position
                     echo -e "${RED}Invalid choice. Please enter a valid number.${RESET}"
-                    continue # Restart the loop
+                    break # break out of the select statement to restart the while loop
                 fi
 
                 # Go back if the user typed q
                 if [ $restore_choice == "q" ]; then
                     restore_cursor_position
-                    continue # Restart the loop
+                    break # break out of the select statement to restart the while loop
                 fi
 
                 # Get the selected backup based on the user's choice
@@ -1132,7 +1132,7 @@ manage_automated_backups() {
                 # Go back if the user typed q
                 if [ $restore_approach_choice == "q" ]; then
                     restore_cursor_position
-                    continue # Restart the loop
+                    break # break out of the select statement to restart the while loop
                 fi
 
                 # Handle user restore choice
@@ -1172,8 +1172,8 @@ manage_automated_backups() {
                     sudo -u "${wp_owner}" -i -- wp db import "${sql_file}" --path="${selected_backup_path}"                    # import db
                     sudo rm "${sql_file}"                                                                                      # Delete the SQL file after it's been imported
                     # Show a success message
-                    # restore_cursor_position
-                    echo -e "${BOLD}${GREEN}'$selected_remote_backup'${RESET} ${GREEN}restoration has been completed.${RESET}"
+                    restore_cursor_position
+                    echo -e "${BOLD}${GREEN}'$selected_remote_backup'${RESET} ${GREEN}has been restored successfully.${RESET}"
                     echo ""
                 else
                     restore_cursor_position
@@ -1194,9 +1194,10 @@ manage_automated_backups() {
             esac
             break
         done
-        PS3="$original_ps3" # Restore the original PS3 value
     done
 
+    # Restore the original PS3 value
+    PS3="$original_ps3"
 }
 
 # Function to manage automated backups

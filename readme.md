@@ -1,6 +1,6 @@
 ## Rclone Automated Backups for WordPress
 
-Automate WordPress backups to various cloud storage providers using rclone automation.
+Automate WordPress backups to various cloud storage providers using rclone automation. Also supports `restic` for incremental backups using rclone.
 
 ![Screenshot](/screenshot.png)
 
@@ -9,7 +9,8 @@ Automate WordPress backups to various cloud storage providers using rclone autom
 - [wp-cli](https://wp-cli.org/) installed.
 - [rclone](https://rclone.org/) installed.
 
-**Note:** This setup has been tested on Ubuntu 22.04 with CloudPanel 2 installed, which includes `wp-cli` and ` rclone` by default. You can test it on other Linux distributions as well.
+## Optional
+- [restic](https://restic.readthedocs.io/en/stable/020_installation.html) to add incremental backup support ( no setup or configuration needed ).
 
 ## Getting Started
 

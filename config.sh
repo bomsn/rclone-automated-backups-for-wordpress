@@ -103,10 +103,19 @@ else
   exit 1
 fi
 
+# Check if rclone is available
+if command -v restic &>/dev/null; then
+  echo -e "${GREEN}4. restic is available.${RESET}"
+  RESTIC_AVAILABLE=true
+else
+  echo -e "${YELLOW}4. restic is not available ( optional for incremental backups ).${RESET}"
+  RESTIC_AVAILABLE=false
+fi
+
 # Check if automated backups are configured correctly
 if [ $HAS_AUTOMATED_BACKUPS == true ]; then
 
-  echo -e "${GREEN}4. automated backups has been configured.${RESET}"
+  echo -e "${GREEN}5. Automated backups has been configured.${RESET}"
 
   echo ""
   echo -e "${GREEN_BG}---------------------------------------------------------------------------${RESET}"
@@ -115,7 +124,7 @@ if [ $HAS_AUTOMATED_BACKUPS == true ]; then
   echo -e "${GREEN_BG}---------------------------------------------------------------------------${RESET}"
 
 else
-  echo -e "${YELLOW}4. automated backups has not been configured.${RESET}"
+  echo -e "${YELLOW}5. Automated backups has not been configured.${RESET}"
 
   echo ""
   echo -e "${GREEN_BG}---------------------------------------------------------------------------${RESET}"

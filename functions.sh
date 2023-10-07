@@ -410,6 +410,49 @@ collect_backup_settings() {
     # Collect excluded folders
     read -p "$(echo -e "${BOLD}${BLUE}Enter folders to exclude (comma-separated eg; wp-admin, wp-includes; or leave empty for none): ${RESET}")" EXCLUDED_ITEMS
 
+    # Collect backup type
+    if [ $RESTIC_AVAILABLE == true ]; then
+        PS3="$(echo -e "${BOLD}${BLUE}Choose backup type: ${RESET}")"
+        select type in "full" "incremental"; do
+            case $type in
+            full | incremental)
+                BACKUP_TYPE="$type"
+                break
+                ;;
+            *)
+                echo -e "${RED}Invalid option. Please select a valid type.${RESET}"
+                ;;
+            esac
+        done
+    else
+        BACKUP_TYPE="full"
+    fi
+
+    # Collect restic password
+    if [ $BACKUP_TYPE == "incremental" ]; then
+        echo ""
+        echo -e "${YELLOW}A password is required for incremental backups.${RESET}"
+        echo -e "${BOLD}${YELLOW}Note 1:${RESET} ${YELLOW}The password is required by restic to take and restore backups.${RESET}"
+        echo -e "${BOLD}${YELLOW}Note 2:${RESET} ${YELLOW}The Password will be saved in plain-text inside the backup script for automation.${RESET}"
+        echo -e "${BOLD}${YELLOW}Note 3:${RESET} ${YELLOW}If the backup script is deleted, the password record will be lost.${RESET}"
+        echo -e "${BOLD}${YELLOW}Note 4:${RESET} ${YELLOW}Make sure to remember your password, if it's lost/forgotten, the incremental backups cannot be restored anywhere.${RESET}"
+        echo ""
+
+        while true; do
+
+            read -s -p "$(echo -e "${BOLD}${BLUE}Enter your password: ${RESET}")" BACKUP_PASS
+            echo ""
+            read -s -p "$(echo -e "${BOLD}${BLUE}Confirm your password: ${RESET}")" BACKUP_CONFIRM_PASS
+            echo ""
+
+            if [ "$BACKUP_PASS" == "$BACKUP_CONFIRM_PASS" ]; then
+                break
+            else
+                echo -e "${RED}Passwords do not match. Please try again.${RESET}"
+            fi
+        done
+    fi
+
     # Collect the destination folder path
     echo -e "${BLUE}- if using object based storage (eg; AWS S3, Google Cloud Storage..etc), the backup location should start with the 'bucket' name (eg; bucket/path/to/dir)${RESET}"
     echo -e "${BLUE}- If using SFTP/FTP based storage, use the full path to your backup directory (eg; /home/user/backup_folder)${RESET}"
@@ -421,7 +464,7 @@ collect_backup_settings() {
     fi
 
     # Make sure all required settings are available, otherwise, re-collect them
-    if [[ -z "$BACKUP_DOMAIN" || -z "$BACKUP_FREQUENCY" || -z "$BACKUP_TIME" || -z "$RETENTION_PERIOD" ]]; then
+    if [[ -z "$BACKUP_DOMAIN" || -z "$BACKUP_FREQUENCY" || -z "$BACKUP_TIME" || -z "$RETENTION_PERIOD" || -z "$BACKUP_TYPE" ]]; then
 
         clear_screen "force"
         echo -e "${RED}Something is missing, please select your preferences again.${RESET}"
@@ -438,6 +481,7 @@ collect_backup_settings() {
     echo -e "${BOLD}Retention Period:${RESET} $RETENTION_PERIOD days"
     echo -e "${BOLD}Excluded Locations:${RESET} $EXCLUDED_ITEMS"
     echo -e "${BOLD}Remote Backup Location:${RESET} $REMOTE_BACKUP_LOCATION"
+    echo -e "${BOLD}Remote Backup Type:${RESET} $BACKUP_TYPE"
 
     read -p "$(echo -e "${BOLD}${BLUE}Are you sure you want to proceed with the above configurations? (y/n): ${RESET}")" confirm
     if [[ $confirm != "y" && $confirm != "yes" ]]; then
@@ -471,8 +515,15 @@ generate_backup_script() {
     local retention_period="${RETENTION_PERIOD}"
     local excluded_items="${EXCLUDED_ITEMS}"
     local remote_backup_location="${REMOTE_BACKUP_LOCATION}/"
+    local remote_backup_type="${BACKUP_TYPE}"
+    local restic_password=""
     local rclone_remote_name=""
     local rclone_remote_valid=false
+
+    # Pull restic password if an incremental backup is defined
+    if [ $remote_backup_type == "incremental" ]; then
+        restic_password="${BACKUP_PASS}"
+    fi
 
     # Validate backup_domain
     if [[ ! " ${DOMAINS[@]} " =~ " $backup_domain " ]]; then
@@ -606,6 +657,7 @@ generate_backup_script() {
 
     # Prepare the backup script and cron job based on frequency, time and the other options.
     if [ $rclone_remote_valid == true ]; then
+
         # Check if the cron scripts directory exists, and create it if it doesn't
         if [ ! -d "$CRON_SCRIPTS_DIR" ]; then
             mkdir -p "$CRON_SCRIPTS_DIR"
@@ -613,17 +665,47 @@ generate_backup_script() {
 
         # Generate a unique name for the backup script based on the frequency and time
         local creation_date=$(date +'%Y-%m-%d %H:%M:%S')
-        local script_prefix=$(echo -n "$creation_date-$backup_domain-$cron_expression-$retention_period-$remote_backup_location-$rclone_remote_name" | md5sum | awk '{print $1}') # used to prefix the backup script
+        local script_prefix=$(echo -n "$creation_date-$backup_domain-$cron_expression-$retention_period-$remote_backup_location-$rclone_remote_name-$remote_backup_type" | md5sum | awk '{print $1}') # used to prefix the backup script
         local script_name="${script_prefix}_${backup_domain//./-}_${backup_time//:/-}_${backup_frequency}_to_${rclone_remote_name}"
         local script_path="$CRON_SCRIPTS_DIR/$script_name"
         local script_hash=$(echo -n "$script_name" | md5sum | awk '{print $1}') # Use to prefix backups
+
         # Check if the file exists
         if [ -e "$script_path" ]; then
             echo -e "${RED}Duplicate detected, this backup could not be created.${RESET}"
             return
         fi
 
-        # Create the backup script with the necessary commands
+        # Initialize restic if this is an incremental backup
+        if [ $remote_backup_type == "incremental" ]; then
+            # Check if a restic repository already exists in the remote location
+            local restic_remote_config_output=$(sudo RESTIC_PASSWORD="${restic_password}" restic -r "rclone:${rclone_remote_name}:${remote_backup_location}" cat config 2>&1)
+            if echo "$restic_remote_config_output" | grep -q "Is there a repository at the following location"; then
+
+                echo ""
+                echo -e "${RED}Initializing remote repository ...${RESET}"
+                echo ""
+
+                # If there are no errors, initialize the repo
+                sudo RESTIC_PASSWORD="${restic_password}" restic -r "rclone:${rclone_remote_name}:${remote_backup_location}" init
+                # Check the exit status of the previous command
+                if [ $? -ne 0 ]; then
+                    # The restic init command failed, we'll bail out to avoid creating a non-valid backup script
+                    clear_screen "force"
+                    echo -e "${RED}Restic repository initilization failed.${RESET}"
+                    echo ""
+                    return
+                fi
+            else
+                # If a repository does not exist, restic will return a non-zero exit code
+                clear_screen "force"
+                echo -e "${RED}This incremental backup could not be created. Duplicate found, or other error.${RESET}"
+                echo ""
+                return
+            fi
+
+        fi
+        # Add the starting content for the backup script (eg; variables..etc)
         cat <<EOF >"$script_path"
 #!/bin/bash
 
@@ -668,18 +750,19 @@ fi
 exec >> "$LOG_FILE" 2>&1
 
 # Prepare main variables
+type="${remote_backup_type}"
 hash="${script_hash}"
 creation_date="${creation_date}"
 cron_expression="${cron_expression}"
 domain="${backup_domain}"
 domain_path="${backup_path}"
 retention_period=${retention_period}
-remote_backup_location="${remote_backup_location}"
 rclone_remote="${rclone_remote_name}"
+remote_backup_location="${remote_backup_location}"
 timestamp=\$(date +'%Y-%m-%d %H:%M:%S')
 backup_date=\$(date +'%d-%m-%Y_%H-%M')
 
-echo "[\${timestamp}] BACK UP STARTED: Performing $backup_time $backup_frequency backup for '\${domain}'" >> "$LOG_FILE"
+echo "[\${timestamp}] BACK UP STARTED (\${type}): Performing $backup_time $backup_frequency backup for '\${domain}'" >> "$LOG_FILE"
 echo "[\${timestamp}] - Exporting database" >> "$LOG_FILE"
 
 # Get the wp installation folder owner and their home directory
@@ -702,8 +785,39 @@ db_filename=\${hash}_\${domain//./_}_\${db_name}_\${backup_date}.sql
 sudo -u "\${wp_owner}" -i -- wp db export "\${wp_owner_directory}/\${db_filename}" --path="\${domain_path}"
 sudo mv "\${wp_owner_directory}/\${db_filename}" "\${tmp_path}/\${db_filename}"
 
-echo "[\${timestamp}] - Database exported and moved to: '\${tmp_path}/\${db_filename}'" >> "$LOG_FILE"
+echo "[\${timestamp}] - Database moved to: '\${tmp_path}/\${db_filename}'" >> "$LOG_FILE"
 
+EOF
+
+        # Append to the script based on the backup type
+        if [ $remote_backup_type == "incremental" ]; then
+            # Add the necessary commands for incremental backups (append to file, note >>)
+            cat <<EOF >>"$script_path"
+
+restic_password=${restic_password}
+
+echo "[\${timestamp}] - Sending the backup to 'rclone' remote location "\${rclone_remote}" using 'restic'" >>"$LOG_FILE"
+
+# Use restic to save a new backup to rclone remote
+sudo RESTIC_PASSWORD="\${restic_password}" restic -r "rclone:\${rclone_remote}:\${remote_backup_location}" backup "\$domain_path" "\${tmp_path}/\${db_filename}" -q
+
+echo "[\${timestamp}] - backup sent to the remote location successfully" >>"$LOG_FILE"
+echo "[\${timestamp}] - Delete the internally generated backup files to free space" >>"$LOG_FILE"
+
+# Delete the generated backup archive and database
+sudo rm \${tmp_path}/\${db_filename}
+
+echo "[\${timestamp}] - Delete backups older than \${retention_period} days from 'rclone' remote location '"\${rclone_remote}"' using 'restic'" >>"$LOG_FILE"
+
+# Delete old backups from remote ( retention logic )
+sudo RESTIC_PASSWORD="\${restic_password}" restic -r "rclone:\${rclone_remote}:\${remote_backup_location}" forget --keep-within-daily "\${retention_period}d" --prune -q
+
+
+EOF
+
+        else
+            # Add the necessary commands for full backups (append to file, note >>)
+            cat <<EOF >>"$script_path"
 if [ \${call_type} == "restore" ]; then
     echo "[\${timestamp}] - Generating pre-restore backup archive" >> "$LOG_FILE"
     backup_filename=\${tmp_path}/\${hash}_\${domain//./-}_\${backup_date}-pre-restore.tar.gz
@@ -740,15 +854,21 @@ echo "[\${timestamp}] - Delete backups older than \${retention_period} days from
 # Delete old backups from remote ( retention logic )
 sudo rclone delete --min-age \${retention_period}d "\${rclone_remote}":"\${remote_backup_location}"
 
+EOF
+        fi
 
-echo "[\${timestamp}] BACK UP FINISHED: $backup_frequency backup for \${domain} has completed successfully" >> "$LOG_FILE"
+        # Add the final content of the script file (append to file, note >>)
+        cat <<EOF >>"$script_path"
+echo "[\${timestamp}] BACK UP FINISHED (\${type}): $backup_frequency backup for \${domain} has completed successfully" >> "$LOG_FILE"
 
 # Make sure to close the log file when done
 exec 3>&-
 EOF
 
-        # Give the script the right permissions
-        sudo chmod +x "$script_path"
+        # Give the script the right permissions ( only owner can read/write/execute )
+        sudo chmod 700 "$script_path"
+        # Run the script to take the initial backup
+        setsid sudo bash "$script_path" >/dev/null 2>&1
 
         # Create our cron file if it doesn't already exist, and give it correct permissions
         if [ ! -f "$CRON_FILE" ]; then
@@ -761,7 +881,8 @@ EOF
         # Show success message
         clear_screen "force"
         echo -e "${BOLD}${GREEN}Your automated backup for $backup_domain has been created successfully.${RESET}"
-        echo -e "${GREEN}The associated backup script and cron job has been created.${RESET}"
+        echo -e "${GREEN}An initial backup is running the background.${RESET}"
+        echo ""
         # Update definitions state variables
         update_definitions_state
 
@@ -802,6 +923,7 @@ manage_automated_backups() {
     # Initialize arrays to store backup details
     declare -a backup_statuses
     declare -a backup_scripts
+    declare -a backup_types
     declare -a backup_cron_expressions
     declare -a backup_hashes
     declare -a backup_names
@@ -827,9 +949,10 @@ manage_automated_backups() {
             fi
 
             # Extract other details from the backup script variables
+            local backup_type=$(grep -oP '(?<!\w)type="\K[^"]+' "$script_file")                                  # only double quote enclosed values
             local creation_date=$(grep -oP 'creation_date="\K[^"]+' "$script_file")                              # only double quote enclosed values
             local cron_expression=$(grep -oP 'cron_expression="\K[^"]+' "$script_file")                          # only double quote enclosed values
-            local backup_hash=$(grep -oP 'hash="\K[^"]+' "$script_file")                                         # only double quote enclosed values
+            local backup_hash=$(grep -oP '(?<!\w)hash="\K[^"]+' "$script_file")                                  # only double quote enclosed values
             local backup_domain=$(grep -oP 'domain="\K[^"]+' "$script_file")                                     # only double quote enclosed values
             local backup_path=$(grep -oP 'domain_path="\K[^"]+' "$script_file")                                  # only double quote enclosed values
             local remote_location=$(grep -oP 'remote_backup_location="\K[^"]+' "$script_file")                   # only double quote enclosed values
@@ -838,7 +961,8 @@ manage_automated_backups() {
 
             # Validate the integrity of this script
             local existing_script_prefix="${script_filename%%_*}"
-            local generated_script_prefix=$(echo -n "$creation_date-$backup_domain-$cron_expression-$retention_period-$remote_location-$rclone_remote" | md5sum | awk '{print $1}') # used to prefix the backup script
+            local generated_script_prefix=$(echo -n "$creation_date-$backup_domain-$cron_expression-$retention_period-$remote_location-$rclone_remote-$backup_type" | md5sum | awk '{print $1}') # used to prefix the backup script
+
             if [ "$existing_script_prefix" != "$generated_script_prefix" ]; then
                 continue # There is no match, move to next iteration
             fi
@@ -865,6 +989,7 @@ manage_automated_backups() {
             # Store the extracted details in arrays
             backup_statuses+=("$backup_status")
             backup_scripts+=("$script_file")
+            backup_types+=("$backup_type")
             backup_cron_expressions+=("$cron_expression")
             backup_hashes+=("$backup_hash")
             backup_names+=("${backup_domain} ${backup_frequency} backup at ${backup_time} to ${rclone_remote}")
@@ -895,7 +1020,7 @@ manage_automated_backups() {
                 bullet="${YELLOW}●${RESET}"
             fi
             index=$((i + 1)) # Increment the index by 1
-            echo -e "$bullet $index. ${backup_names[i]}"
+            echo -e "$bullet $index. ${backup_names[i]} [${backup_types[i]}]"
         done
 
         # Ask the user to select a backup for detailed management
@@ -924,6 +1049,7 @@ manage_automated_backups() {
 
     local selected_backup_status="${backup_statuses[selected_backup_index]}"
     local selected_backup_script="${backup_scripts[selected_backup_index]}"
+    local selected_backup_type="${backup_types[selected_backup_index]}"
     local selected_backup_cron_expression="${backup_cron_expressions[selected_backup_index]}"
     local selected_backup_hash="${backup_hashes[selected_backup_index]}"
     local selected_backup_name="${backup_names[selected_backup_index]}"
@@ -946,8 +1072,9 @@ manage_automated_backups() {
     else
         echo -e "${BOLD}Backup Status:${RESET} ${YELLOW}$selected_backup_status${RESET}"
     fi
+    echo -e "${BOLD}Backup Type:${RESET} ${BLUE}$selected_backup_type${RESET}"
     echo -e "${BOLD}Backup ID:${RESET} $selected_backup_hash"
-    echo -e "${BOLD}Backup Name:${RESET} $selected_backup_name"
+    echo -e "${BOLD}Backup Name:${RESET} ${RESET} $selected_backup_name"
     echo -e "${BOLD}Backup Schedule:${RESET} $selected_backup_schedule"
     echo -e "${BOLD}Backup Domain:${RESET} $selected_backup_domain"
     echo -e "${BOLD}Backup Path:${RESET} $selected_backup_path"
@@ -995,7 +1122,7 @@ manage_automated_backups() {
                 echo -e "${RED_BG}---------------------------------------------------------------------------${RESET}"
                 echo -e "${RED_BG}--------------------------- PROCEED WITH CAUTION --------------------------${RESET}"
                 echo -e "${RED_BG}---------------------------------------------------------------------------${RESET}"
-                echo -e "${RED_BG}--------------- If you chose to delete this automated backup --------------${RESET}"
+                echo -e "${RED_BG}-------------- If you choose to delete this automated backup --------------${RESET}"
                 echo -e "${RED_BG}----------- you'll lose access to the backup restoration feature ----------${RESET}"
                 echo -e "${RED_BG}---------- and any management features associated with the backup ---------${RESET}"
                 echo -e "${RED_BG}---------------------------------------------------------------------------${RESET}"
@@ -1030,98 +1157,106 @@ manage_automated_backups() {
                 echo ""
                 echo -e "${YELLOW}Pulling remote backups count & total size...${RESET}"
 
-                # Show backups size and count
-                echo ""
-                sudo rclone size "${selected_backup_rclone_remote}":"${selected_backup_remote_location}" --include "${selected_backup_hash}_*"
+                if [ $selected_backup_type == "incremental" ]; then
 
-                echo ""
-                echo -e "${YELLOW}Pulling remote backups list...${RESET}"
+                    sudo restic -r "rclone:${selected_backup_rclone_remote}:${selected_backup_remote_location}" snapshots
+                    break
+                else
 
-                # Capture the list of backup files
-                local backup_list_output=$(sudo rclone ls "${selected_backup_rclone_remote}":"${selected_backup_remote_location}" --include "${selected_backup_hash}_*")
-
-                # Check if the backup list is empty
-                if [ -z "$backup_list_output" ]; then
-                    restore_cursor_position
-                    echo -e "${YELLOW}No remote backups found.${RESET}"
+                    # Show backups size and count
                     echo ""
-                    break # break out of the select statement to restart the while loop
-                fi
+                    sudo rclone size "${selected_backup_rclone_remote}":"${selected_backup_remote_location}" --include "${selected_backup_hash}_*"
 
-                # Capture the list of remote backup files
-                local remote_backup_files=()
-                local remote_backup_lines=()
-                while IFS= read -r line; do
-                    # Remove leading spaces from the line
-                    line="${line#"${line%%[![:space:]]*}"}"
+                    echo ""
+                    echo -e "${YELLOW}Pulling remote backups list...${RESET}"
 
-                    # Extract the size and filename from the line
-                    local remote_backup_size="${line%% *}" # Extract size (everything before the first space)
-                    local remote_backup_name="${line#* }"  # Extract filename (everything after the first space)
+                    # Capture the list of backup files
+                    local backup_list_output=$(sudo rclone ls "${selected_backup_rclone_remote}":"${selected_backup_remote_location}" --include "${selected_backup_hash}_*")
 
-                    # Remove the MD5 prefix from remote_backup_name
-                    local noprefix_remote_backup_name="${remote_backup_name#*_}"
-
-                    # Extract the date and time from the filename
-                    if [[ "$noprefix_remote_backup_name" =~ ([0-9]{2}-[0-9]{2}-[0-9]{4})_([0-9]{2}-[0-9]{2}).*\.tar\.gz ]]; then
-                        backup_file_date="${BASH_REMATCH[1]}"
-                        backup_file_time="${BASH_REMATCH[2]//-/:}"
-
-                        # Format the time to display in 12-hour format with AM/PM
-                        backup_file_time=$(date -d "$backup_file_time" +"%I:%M%p")
-
-                        # Format the size in a human-readable format (MB, GB, etc.)
-                        backup_size_readable=$(numfmt --to=iec --suffix=B --format="%.2f" "$remote_backup_size")
-
-                        # Increment the index for numbering the options
-                        if [ $index == 1 ]; then
-                            backup_file_date="$backup_file_date-15455"
-                        fi
-                        # Add the formatted line to the remote_backup_files array
-                        remote_backup_files+=("$remote_backup_name")
-                        remote_backup_lines+=("$backup_file_date $backup_file_time $backup_size_readable $noprefix_remote_backup_name")
+                    # Check if the backup list is empty
+                    if [ -z "$backup_list_output" ]; then
+                        restore_cursor_position
+                        echo -e "${YELLOW}No remote backups found.${RESET}"
+                        echo ""
+                        break # break out of the select statement to restart the while loop
                     fi
-                done <<<"$backup_list_output"
 
-                # Display the backup list as a table with aligned headers
-                echo ""
-                echo -e "${BOLD}${YELLOW}#   Date        Time     Size     Name${RESET}"
-                # Calculate the maximum length of the index numbers to align them properly
-                local max_index_length="${#remote_backup_lines[@]}"
-                while ((max_index_length > 0)); do
-                    max_index_length=$((max_index_length / 10))
-                    local index_length=$((index_length + 1))
-                done
+                    # Capture the list of remote backup files
+                    local remote_backup_files=()
+                    local remote_backup_lines=()
+                    while IFS= read -r line; do
+                        # Remove leading spaces from the line
+                        line="${line#"${line%%[![:space:]]*}"}"
 
-                for ((i = 0; i < ${#remote_backup_lines[@]}; i++)); do
-                    # Calculate the padding for the index numbers
-                    local padding_length=$((index_length - ${#i}))
-                    local padding=""
-                    for ((j = 0; j < padding_length; j++)); do
-                        padding+=" "
+                        # Extract the size and filename from the line
+                        local remote_backup_size="${line%% *}" # Extract size (everything before the first space)
+                        local remote_backup_name="${line#* }"  # Extract filename (everything after the first space)
+
+                        # Remove the MD5 prefix from remote_backup_name
+                        local noprefix_remote_backup_name="${remote_backup_name#*_}"
+
+                        # Extract the date and time from the filename
+                        if [[ "$noprefix_remote_backup_name" =~ ([0-9]{2}-[0-9]{2}-[0-9]{4})_([0-9]{2}-[0-9]{2}).*\.tar\.gz ]]; then
+                            backup_file_date="${BASH_REMATCH[1]}"
+                            backup_file_time="${BASH_REMATCH[2]//-/:}"
+
+                            # Format the time to display in 12-hour format with AM/PM
+                            backup_file_time=$(date -d "$backup_file_time" +"%I:%M%p")
+
+                            # Format the size in a human-readable format (MB, GB, etc.)
+                            backup_size_readable=$(numfmt --to=iec --suffix=B --format="%.2f" "$remote_backup_size")
+
+                            # Increment the index for numbering the options
+                            if [ $index == 1 ]; then
+                                backup_file_date="$backup_file_date-15455"
+                            fi
+                            # Add the formatted line to the remote_backup_files array
+                            remote_backup_files+=("$remote_backup_name")
+                            remote_backup_lines+=("$backup_file_date $backup_file_time $backup_size_readable $noprefix_remote_backup_name")
+                        fi
+                    done <<<"$backup_list_output"
+
+                    # Display the backup list as a table with aligned headers
+                    echo ""
+                    echo -e "${BOLD}${YELLOW}#   Date        Time     Size     Name${RESET}"
+                    # Calculate the maximum length of the index numbers to align them properly
+                    local max_index_length="${#remote_backup_lines[@]}"
+                    while ((max_index_length > 0)); do
+                        max_index_length=$((max_index_length / 10))
+                        local index_length=$((index_length + 1))
                     done
-                    local item_index=$((i + 1))
-                    echo -e "${BOLD}${YELLOW}${padding}${item_index}. ${RESET}${remote_backup_lines[i]}"
-                done | column -t
 
-                # Ask the user to select a backup for restoration
-                read -p "$(echo -e "${BOLD}${BLUE}Enter the number of the backup to restore (1-${#remote_backup_lines[@]}) ${BLUE}( or q to go back ): ${RESET}")" restore_choice
+                    for ((i = 0; i < ${#remote_backup_lines[@]}; i++)); do
+                        # Calculate the padding for the index numbers
+                        local padding_length=$((index_length - ${#i}))
+                        local padding=""
+                        for ((j = 0; j < padding_length; j++)); do
+                            padding+=" "
+                        done
+                        local item_index=$((i + 1))
+                        echo -e "${BOLD}${YELLOW}${padding}${item_index}. ${RESET}${remote_backup_lines[i]}"
+                    done | column -t
 
-                # Validate the user's choice
-                if [[ ! "$restore_choice" =~ ^[0-9]+$ ]] || [ "$restore_choice" -lt 1 ] || [ "$restore_choice" -gt "${#remote_backup_lines[@]}" ]; then
-                    restore_cursor_position
-                    echo -e "${RED}Invalid choice. Please enter a valid number.${RESET}"
-                    break # break out of the select statement to restart the while loop
+                    # Ask the user to select a backup for restoration
+                    read -p "$(echo -e "${BOLD}${BLUE}Enter the number of the backup to restore (1-${#remote_backup_lines[@]}) ${BLUE}( or q to go back ): ${RESET}")" restore_choice
+
+                    # Validate the user's choice
+                    if [[ ! "$restore_choice" =~ ^[0-9]+$ ]] || [ "$restore_choice" -lt 1 ] || [ "$restore_choice" -gt "${#remote_backup_lines[@]}" ]; then
+                        restore_cursor_position
+                        echo -e "${RED}Invalid choice. Please enter a valid number.${RESET}"
+                        break # break out of the select statement to restart the while loop
+                    fi
+
+                    # Go back if the user typed q
+                    if [ $restore_choice == "q" ]; then
+                        restore_cursor_position
+                        break # break out of the select statement to restart the while loop
+                    fi
+
+                    # Get the selected backup based on the user's choice
+                    local selected_remote_backup="${remote_backup_files[restore_choice - 1]}"
+
                 fi
-
-                # Go back if the user typed q
-                if [ $restore_choice == "q" ]; then
-                    restore_cursor_position
-                    break # break out of the select statement to restart the while loop
-                fi
-
-                # Get the selected backup based on the user's choice
-                local selected_remote_backup="${remote_backup_files[restore_choice - 1]}"
 
                 # Confirm with the user before restoring the backup
                 echo -e "You selected: ${BOLD}$selected_remote_backup${RESET}"

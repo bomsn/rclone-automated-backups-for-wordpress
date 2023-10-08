@@ -683,7 +683,7 @@ generate_backup_script() {
             if echo "$restic_remote_config_output" | grep -q "Is there a repository at the following location"; then
 
                 echo ""
-                echo -e "${RED}Initializing remote repository ...${RESET}"
+                echo -e "${YELLOW}Initializing remote repository ...${RESET}"
                 echo ""
 
                 # If there are no errors, initialize the repo
@@ -783,9 +783,7 @@ db_name=\$(sudo -u "\${wp_owner}" -i -- wp config get DB_NAME --path="\${domain_
 db_filename=\${hash}_\${domain//./_}_\${db_name}_\${backup_date}.sql
 # We'll export the database and move it to our current directory as a 'tmp' file
 sudo -u "\${wp_owner}" -i -- wp db export "\${wp_owner_directory}/\${db_filename}" --path="\${domain_path}"
-sudo mv "\${wp_owner_directory}/\${db_filename}" "\${tmp_path}/\${db_filename}"
-
-echo "[\${timestamp}] - Database moved to: '\${tmp_path}/\${db_filename}'" >> "$LOG_FILE"
+mv "\${wp_owner_directory}/\${db_filename}" "\$domain_path/\${db_filename}"
 
 EOF
 
@@ -799,13 +797,13 @@ restic_password=${restic_password}
 echo "[\${timestamp}] - Sending the backup to 'rclone' remote location "\${rclone_remote}" using 'restic'" >>"$LOG_FILE"
 
 # Use restic to save a new backup to rclone remote
-sudo RESTIC_PASSWORD="\${restic_password}" restic -r "rclone:\${rclone_remote}:\${remote_backup_location}" backup "\$domain_path" "\${tmp_path}/\${db_filename}" -q
+sudo RESTIC_PASSWORD="\${restic_password}" restic -r "rclone:\${rclone_remote}:\${remote_backup_location}" backup "\$domain_path/" -q
 
 echo "[\${timestamp}] - backup sent to the remote location successfully" >>"$LOG_FILE"
 echo "[\${timestamp}] - Delete the internally generated backup files to free space" >>"$LOG_FILE"
 
-# Delete the generated backup archive and database
-sudo rm \${tmp_path}/\${db_filename}
+# Delete the generated database file
+sudo rm "\${wp_owner_directory}/\${db_filename}"
 
 echo "[\${timestamp}] - Delete backups older than \${retention_period} days from 'rclone' remote location '"\${rclone_remote}"' using 'restic'" >>"$LOG_FILE"
 
@@ -818,6 +816,11 @@ EOF
         else
             # Add the necessary commands for full backups (append to file, note >>)
             cat <<EOF >>"$script_path"
+
+sudo mv "\${wp_owner_directory}/\${db_filename}" "\${tmp_path}/\${db_filename}"
+
+echo "[\${timestamp}] - Database moved to: '\${tmp_path}/\${db_filename}'" >> "$LOG_FILE"
+
 if [ \${call_type} == "restore" ]; then
     echo "[\${timestamp}] - Generating pre-restore backup archive" >> "$LOG_FILE"
     backup_filename=\${tmp_path}/\${hash}_\${domain//./-}_\${backup_date}-pre-restore.tar.gz
@@ -1154,14 +1157,31 @@ manage_automated_backups() {
                 ;;
             "View/restore remote backups")
 
-                echo ""
-                echo -e "${YELLOW}Pulling remote backups count & total size...${RESET}"
-
                 if [ $selected_backup_type == "incremental" ]; then
 
-                    sudo restic -r "rclone:${selected_backup_rclone_remote}:${selected_backup_remote_location}" snapshots
-                    break
+                    echo ""
+                    echo -e "${YELLOW}Pulling remote backups ...${RESET}"
+                    echo ""
+                    # Extract repo password from backup file ( may not have double quotes )
+                    local restic_password=$(grep -oP 'restic_password=("[^"]*"|\S+)' "$selected_backup_script" | cut -d '=' -f 2)
+
+                    # List existing snapshots
+                    sudo RESTIC_PASSWORD="${restic_password}" restic -r "rclone:${selected_backup_rclone_remote}:${selected_backup_remote_location}" snapshots
+
+                    # Ask the user to select a backup for restoration
+                    read -p "$(echo -e "${BOLD}${BLUE}Enter the ID of the backup you'd like to restore ( or q to go back ): ${RESET}")" restore_choice
+
+                    # Show a restoration notice
+                    echo ""
+                    echo -e "${YELLOW}Restoring to:${RESET} ${BOLD}${YELLOW}$selected_backup_path${RESET}"
+
+                    # Restore to the same backed up path ( use --target and --include to manipulate the destinations of the restored files )
+                    sudo RESTIC_PASSWORD="${restic_password}" restic -r "rclone:${selected_backup_rclone_remote}:${selected_backup_remote_location}" restore $restore_choice --target "/" --include "$selected_backup_path/*"
+
                 else
+
+                    echo ""
+                    echo -e "${YELLOW}Pulling remote backups count & total size...${RESET}"
 
                     # Show backups size and count
                     echo ""
@@ -1256,66 +1276,67 @@ manage_automated_backups() {
                     # Get the selected backup based on the user's choice
                     local selected_remote_backup="${remote_backup_files[restore_choice - 1]}"
 
-                fi
+                    # Confirm with the user before restoring the backup
+                    echo -e "You selected: ${BOLD}$selected_remote_backup${RESET}"
+                    echo -e "Choose a restore approach:"
+                    echo -e "${BOLD}${YELLOW}1. ${RESET} Overwrite existing files"
+                    echo -e "${BOLD}${YELLOW}2. ${RESET} Delete everything in the website folder and restore"
 
-                # Confirm with the user before restoring the backup
-                echo -e "You selected: ${BOLD}$selected_remote_backup${RESET}"
-                echo -e "Choose a restore approach:"
-                echo -e "${BOLD}${YELLOW}1. ${RESET} Overwrite existing files"
-                echo -e "${BOLD}${YELLOW}2. ${RESET} Delete everything in the website folder and restore"
-
-                read -p "$(echo -e "${BOLD}${BLUE}Enter the number of your choice (1/2)${RESET} ${BLUE}( or q to go back ): ${RESET}")" restore_approach_choice
-                # Go back if the user typed q
-                if [ $restore_approach_choice == "q" ]; then
-                    restore_cursor_position
-                    break # break out of the select statement to restart the while loop
-                fi
-
-                # Handle user restore choice
-                if [[ $restore_approach_choice == "1" || $restore_approach_choice == "2" ]]; then
-                    restore_cursor_position
-
-                    # Show a pre-restore backup notice
-                    echo ""
-                    echo -e "${YELLOW}Taking a full pre-restore backup ...${RESET}"
-                    # Take a backup using backup script with the arg "restore" to indicate this is a pre-restore backup
-                    sudo bash $selected_backup_script "restore"
-
-                    # Show a restoration notice
-                    echo ""
-                    echo -e "${YELLOW}Restoring ${RESET}${BOLD}${YELLOW}$selected_remote_backup${RESET} ${YELLOW}to${RESET} ${BOLD}${YELLOW}$selected_backup_path${RESET}"
-                    # Pull the backup from remote
-                    sudo rclone copyto --progress "${selected_backup_rclone_remote}":"${selected_backup_remote_location}${selected_remote_backup}" "${TMP_DIR}/${selected_remote_backup}.tmp"
-
-                    # Now delete the content of the domain folder or overwrite depending on the user choice
-                    if [ $restore_approach_choice == "1" ]; then
-                        # Overwrite
-                        sudo tar -xzf "${TMP_DIR}/${selected_remote_backup}.tmp" -C "$selected_backup_path"
-                        sudo rm "${TMP_DIR}/${selected_remote_backup}.tmp"
-                    elif [ $restore_approach_choice == "2" ]; then
-                        # Delete and write
-                        sudo rm -rf "${selected_backup_path%/}"/*
-                        sudo tar -xzf "${TMP_DIR}/${selected_remote_backup}.tmp" -C "$selected_backup_path"
-                        sudo rm "${TMP_DIR}/${selected_remote_backup}.tmp"
+                    read -p "$(echo -e "${BOLD}${BLUE}Enter the number of your choice (1/2)${RESET} ${BLUE}( or q to go back ): ${RESET}")" restore_approach_choice
+                    # Go back if the user typed q
+                    if [ $restore_approach_choice == "q" ]; then
+                        restore_cursor_position
+                        break # break out of the select statement to restart the while loop
                     fi
 
-                    # Show a db import notice
-                    echo ""
-                    echo -e "${YELLOW}Importing the database ...${RESET}"
-                    # Now import the database using wp cli and delete it afterwards
-                    local wp_owner=$(sudo stat -c "%U" ${selected_backup_path})                                                # get WordPress folder owner
-                    local sql_file=$(find "$selected_backup_path" -type f -name "*${selected_backup_hash}_*.sql" -print -quit) # find the sql file path
-                    sudo -u "${wp_owner}" -i -- wp db import "${sql_file}" --path="${selected_backup_path}"                    # import db
-                    sudo rm "${sql_file}"                                                                                      # Delete the SQL file after it's been imported
-                    # Show a success message
-                    restore_cursor_position
-                    echo -e "${BOLD}${GREEN}'$selected_remote_backup'${RESET} ${GREEN}has been restored successfully.${RESET}"
-                    echo ""
-                else
-                    restore_cursor_position
-                    echo -e "${BOLD}${YELLOW}'$selected_remote_backup'${RESET} ${YELLOW}restoration has been aborted.${RESET}"
-                    echo ""
+                    # Handle user restore choice
+                    if [[ $restore_approach_choice == "1" || $restore_approach_choice == "2" ]]; then
+                        restore_cursor_position
+
+                        # Show a pre-restore backup notice
+                        echo ""
+                        echo -e "${YELLOW}Taking a full pre-restore backup ...${RESET}"
+                        # Take a backup using backup script with the arg "restore" to indicate this is a pre-restore backup
+                        sudo bash $selected_backup_script "restore"
+
+                        # Show a restoration notice
+                        echo ""
+                        echo -e "${YELLOW}Restoring ${RESET}${BOLD}${YELLOW}$selected_remote_backup${RESET} ${YELLOW}to${RESET} ${BOLD}${YELLOW}$selected_backup_path${RESET}"
+                        # Pull the backup from remote
+                        sudo rclone copyto --progress "${selected_backup_rclone_remote}":"${selected_backup_remote_location}${selected_remote_backup}" "${TMP_DIR}/${selected_remote_backup}.tmp"
+
+                        # Now delete the content of the domain folder or overwrite depending on the user choice
+                        if [ $restore_approach_choice == "1" ]; then
+                            # Overwrite
+                            sudo tar -xzf "${TMP_DIR}/${selected_remote_backup}.tmp" -C "$selected_backup_path"
+                            sudo rm "${TMP_DIR}/${selected_remote_backup}.tmp"
+                        elif [ $restore_approach_choice == "2" ]; then
+                            # Delete and write
+                            sudo rm -rf "${selected_backup_path%/}"/*
+                            sudo tar -xzf "${TMP_DIR}/${selected_remote_backup}.tmp" -C "$selected_backup_path"
+                            sudo rm "${TMP_DIR}/${selected_remote_backup}.tmp"
+                        fi
+
+                    else
+                        restore_cursor_position
+                        echo -e "${BOLD}${YELLOW}'$selected_remote_backup'${RESET} ${YELLOW}restoration has been aborted.${RESET}"
+                        echo ""
+                    fi
                 fi
+
+                # Show a db import notice
+                echo ""
+                echo -e "${YELLOW}Importing the database ...${RESET}"
+                # Now import the database using wp cli and delete it afterwards
+                local wp_owner=$(sudo stat -c "%U" ${selected_backup_path})                                                # get WordPress folder owner
+                local sql_file=$(find "$selected_backup_path" -type f -name "*${selected_backup_hash}_*.sql" -print -quit) # find the sql file path
+                sudo -u "${wp_owner}" -i -- wp db import "${sql_file}" --path="${selected_backup_path}"                    # import db
+                sudo rm "${sql_file}"                                                                                      # Delete the SQL file after it's been imported
+                # Show a success message
+                restore_cursor_position
+                echo -e "${BOLD}${GREEN}Restore successfully completed.${RESET}"
+                echo ""
+
                 ;;
             "Return to the previous menu")
                 restore_cursor_position "alt"

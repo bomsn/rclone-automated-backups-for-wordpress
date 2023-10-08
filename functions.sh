@@ -328,6 +328,9 @@ configure_rclone() {
 
     # Clear screen
     clear_screen "force"
+
+    # Update definitions state variables
+    update_definitions_state
 }
 
 # Function to collect the backup settings from the user

@@ -1227,7 +1227,10 @@ manage_automated_backups() {
                         echo ""
                         echo -e "${YELLOW}Restoring${RESET} ${BOLD}${YELLOW}$selected_remote_backup${RESET} ${YELLOW}to:${RESET} ${BOLD}${YELLOW}$selected_backup_path${RESET}"
 
-                        # Restore to the same backed up path ( use --target and --include to manipulate the destinations of the restored files )
+                        # Restore to the same backed up path
+                        # Use --target to manipulate the destination
+                        # Use --include to only include specific folder or file from snapshot
+                        # use ":path/to/folder" after the snapshot ID to restore the content of a specific folder directly
                         sudo RESTIC_PASSWORD="${restic_password}" restic -r "rclone:${selected_backup_rclone_remote}:${selected_backup_remote_location}" restore $selected_remote_backup --target "/"
                     else
                         restore_cursor_position

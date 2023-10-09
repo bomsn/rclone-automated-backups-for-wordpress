@@ -785,7 +785,7 @@ wp_owner=\$(sudo stat -c "%U" \${domain_path})
 # Get the database name and construct the db backup file name and path
 # Note that we are using sudo to run wp cli commands as "wp_owner" to avoid permissions complications
 db_name=\$(sudo -u "\${wp_owner}" -i -- wp config get DB_NAME --path="\${domain_path}")
-db_filename=\${hash}_\${domain//./_}_\${db_name}_\${backup_date}.sql
+db_filename=\${hash}_\${domain//./_}_\${db_name}_incremental.sql
 # We'll export the database and move it to our current directory as a 'tmp' file
 sudo -u "\${wp_owner}" -i -- wp db export "\${domain_path}/\${db_filename}" --path="\${domain_path}"
 

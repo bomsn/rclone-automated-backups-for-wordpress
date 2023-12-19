@@ -21,30 +21,13 @@ Follow these steps to set up automated WordPress backups:
 - Download this repo zip file:
 
 ```shell
-sudo curl -LJO https://github.com/bomsn/rclone-automated-backups-for-wordpress/archive/refs/heads/master.zip
+apt-get -y install wget git
+git clone https://github.com/bomsn/rclone-automated-backups-for-wordpress.git rclone-wordpress
 ```
-
-- Unzip the file
-
-```shell
-sudo unzip rclone-automated-backups-for-wordpress-master.zip
-```
-
-- Delete the zip file
-
-```shell
-sudo rm rclone-automated-backups-for-wordpress-master.zip
-```
-
-- rename and cd into the project folder 
-
-```shell
-mv rclone-automated-backups-for-wordpress-master rclone-automated-backups-for-wordpress && cd rclone-automated-backups-for-wordpress
-```
-
 - Run the initilization script
 
 ```shell
+cd rclone-wordpress
 sudo bash config.sh
 ```  
 

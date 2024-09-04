@@ -784,10 +784,10 @@ wp_owner=\$(sudo stat -c "%U" \${domain_path})
 
 # Get the database name and construct the db backup file name and path
 # Note that we are using sudo to run wp cli commands as "wp_owner" to avoid permissions complications
-db_name=\$(sudo -u "\${wp_owner}" -i -- wp config get DB_NAME --path="\${domain_path}")
+db_name=\$(sudo -u "\${wp_owner}" -s -- wp config get DB_NAME --path="\${domain_path}")
 db_filename=\${hash}_\${domain//./_}_\${db_name}_incremental.sql
 # We'll export the database and move it to our current directory as a 'tmp' file
-sudo -u "\${wp_owner}" -i -- wp db export "\${domain_path}/\${db_filename}" --path="\${domain_path}"
+sudo -u "\${wp_owner}" -s -- wp db export "\${domain_path}/\${db_filename}" --path="\${domain_path}"
 
 restic_password=${restic_password}
 
@@ -832,10 +832,10 @@ echo "[\${timestamp}] - WP folder owner home directory found: '\${wp_owner_direc
 
 # Get the database name and construct the db backup file name and path
 # Note that we are using sudo to run wp cli commands as "wp_owner" to avoid permissions complications
-db_name=\$(sudo -u "\${wp_owner}" -i -- wp config get DB_NAME --path="\${domain_path}")
+db_name=\$(sudo -u "\${wp_owner}" -s -- wp config get DB_NAME --path="\${domain_path}")
 db_filename=\${hash}_\${domain//./_}_\${db_name}_\${backup_date}.sql
 # We'll export the database and move it to our current directory as a 'tmp' file
-sudo -u "\${wp_owner}" -i -- wp db export "\${wp_owner_directory}/\${db_filename}" --path="\${domain_path}"
+sudo -u "\${wp_owner}" -s -- wp db export "\${wp_owner_directory}/\${db_filename}" --path="\${domain_path}"
 
 if [ \${call_type} == "restore" ]; then
     echo "[\${timestamp}] - Generating pre-restore backup archive" >> "$LOG_FILE"

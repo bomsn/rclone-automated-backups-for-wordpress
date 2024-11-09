@@ -165,19 +165,34 @@ add_domain() {
         path="/$path"
     fi
 
-    # Ensure WordPress installation exists under the provided path
-    if [ -f "$path/wp-config.php" ]; then
-        # WordPress installation exists for this domain, let's append it to the array
-        DOMAINS+=("$sanitized_domain")
-        PATHS+=("${path%/}") # Add path after remove any trailing slash
-        update_definitions   # Save definitions after each addition
-        clear_screen "force"
-        echo -e "${GREEN}Domain $sanitized_domain added successfully.${RESET}"
+    # Remove any trailing slash
+    path="${path%/}"
+
+    # Check for WordPress installation in different possible locations
+    local wp_path=""
+
+    # Check WordOps structure first (wp-config.php in parent, files in htdocs)
+    if [ -f "$path/wp-config.php" ] && [ -d "$path/htdocs" ]; then
+        wp_path="$path/htdocs"
+    # Check if path points to htdocs directory
+    elif [ -f "${path%/htdocs}/wp-config.php" ] && [ -d "$path" ]; then
+        wp_path="$path"
+    # Check standard structure (everything in same directory)
+    elif [ -f "$path/wp-config.php" ]; then
+        wp_path="$path"
     else
-        # No WordPress installation found for this domain
+        # No WordPress installation found
         clear_screen "force"
         echo -e "${RED}We could not find a WordPress installation under $path ${RESET}"
+        return
     fi
+
+    # WordPress installation exists for this domain, let's append it to the array
+    DOMAINS+=("$sanitized_domain")
+    PATHS+=("$wp_path") # Store the path to WordPress files
+    update_definitions   # Save definitions after each addition
+    clear_screen "force"
+    echo -e "${GREEN}Domain $sanitized_domain added successfully.${RESET}"
 }
 
 # Function to delete domain and path
@@ -822,19 +837,32 @@ EOF
 wp_owner=\$(sudo stat -c "%U" \${domain_path})
 wp_owner_directory=\$(sudo getent passwd \${wp_owner} | cut -d: -f6)
 
-# if we can't find the owner directory, find any directory they own so we can use it to export the database ( to avoid permission isses with wp cli )
+# if we can't find the owner directory, use /tmp as fallback
 if [ -z "\${wp_owner_directory}" ] || [ ! -d "\${wp_owner_directory}" ]; then
-    wp_owner_directory=\$(sudo find / -type d -user "\${wp_owner}" -print -quit)
+    wp_owner_directory="/tmp"
 fi
 
 echo "[\${timestamp}] - WP folder owner found: '\${wp_owner}'" >> "$LOG_FILE"
 echo "[\${timestamp}] - WP folder owner home directory found: '\${wp_owner_directory}'" >> "$LOG_FILE"
 
+# Create tmp directory with proper permissions if it doesn't exist
+if [ ! -d "\${wp_owner_directory}" ]; then
+    sudo mkdir -p "\${wp_owner_directory}"
+    sudo chown \${wp_owner}:\${wp_owner} "\${wp_owner_directory}"
+    sudo chmod 755 "\${wp_owner_directory}"
+fi
+
+# Get wp-config.php location (one level up from domain_path for WordOps)
+wp_config_path="\${domain_path}"
+if [[ "\${domain_path}" == */htdocs ]]; then
+    wp_config_path="\${domain_path%/htdocs}"
+fi
+
 # Get the database name and construct the db backup file name and path
-# Note that we are using sudo to run wp cli commands as "wp_owner" to avoid permissions complications
 db_name=\$(sudo -u "\${wp_owner}" -s -- wp config get DB_NAME --path="\${domain_path}")
 db_filename=\${hash}_\${domain//./_}_\${db_name}_\${backup_date}.sql
-# We'll export the database and move it to our current directory as a 'tmp' file
+
+# Export the database with proper permissions
 sudo -u "\${wp_owner}" -s -- wp db export "\${wp_owner_directory}/\${db_filename}" --path="\${domain_path}"
 
 if [ \${call_type} == "restore" ]; then

@@ -873,16 +873,82 @@ else
     backup_filename=\${tmp_path}/\${hash}_\${domain//./-}_\${backup_date}.tar.gz
 fi
 
-# Prepare the backup file ( compress the target site and the previously exported database )
-if [ \${call_type} == "restore" ]; then
-    # We will backup the whole folder when it's a pre-restore backup
-    sudo tar --transform 's,^\./,,' -czf "\${backup_filename}.tmp" -C "\${domain_path}/" . -C "\${wp_owner_directory}/" "\${db_filename}"
+# --- Backup Logic ---
+
+# Prepare the backup file (compress the target site and the previously exported database)
+echo "[\${timestamp}] - Attempting direct tar backup" >> "$LOG_FILE"
+
+backup_success=false
+
+if sudo test "\${call_type}" = "restore"; then
+    # Try direct tar for pre-restore backup first
+    if sudo tar --warning=no-file-changed --transform 's,^\./,,' -czf "\${backup_filename}.tmp" -C "\${domain_path}/" . -C "\${wp_owner_directory}/" "\${db_filename}" 2>> "$LOG_FILE"; then
+        backup_success=true
+        echo "[\${timestamp}] - Direct tar backup successful" >> "$LOG_FILE"
+    else
+        echo "[\${timestamp}] - Direct tar backup failed, trying alternative method" >> "$LOG_FILE"
+    fi
 else
-    sudo tar --transform 's,^\./,,' $excludes -czf "\${backup_filename}.tmp" -C "\${domain_path}/" . -C "\${wp_owner_directory}/" "\${db_filename}"
+    # Try direct tar with excludes first
+    if sudo tar --warning=no-file-changed --transform 's,^\./,,' $excludes -czf "\${backup_filename}.tmp" -C "\${domain_path}/" . -C "\${wp_owner_directory}/" "\${db_filename}" 2>> "$LOG_FILE"; then
+        backup_success=true
+        echo "[\${timestamp}] - Direct tar backup successful" >> "$LOG_FILE"
+    else
+        echo "[\${timestamp}] - Direct tar backup failed, trying alternative method" >> "$LOG_FILE"
+    fi
+fi
+
+# If direct tar failed, try cp method
+if [ "$backup_success" = false ]; then
+    # Create temporary directory for cp method
+    tmp_backup_dir="\${wp_owner_directory}/tmp_backup_\${backup_date}"
+    
+    # Check available space before copying
+    required_space=$(sudo du -sb "${domain_path}" | cut -f1)
+    available_space=$(sudo df -B1 "${wp_owner_directory}" | awk 'NR==2 {print $4}')
+    
+    if [ "$available_space" -gt "$((required_space * 2))" ]; then
+        echo "[\${timestamp}] - Sufficient space available for cp method" >> "$LOG_FILE"
+        
+        # Create temp directory and copy files
+        sudo mkdir -p "${tmp_backup_dir}"
+        
+        if sudo test "\${call_type}" = "restore"; then
+            sudo cp -a "\${domain_path}/." "\${tmp_backup_dir}/"
+        else
+            sudo cp -a "\${domain_path}/." "\${tmp_backup_dir}/"
+            # Apply excludes by removing excluded files/directories
+            for exclude in $excludes; do
+                exclude_path=$(echo "$exclude" | sed 's/--exclude=//')
+                sudo rm -rf "\${tmp_backup_dir}/\${exclude_path}"
+            done
+        fi
+        
+        # Try tar on the copied files
+        if sudo tar -czf "\${backup_filename}.tmp" -C "\${tmp_backup_dir}" . -C "\${wp_owner_directory}/" "\${db_filename}" 2>> "$LOG_FILE"; then
+            backup_success=true
+            echo "[\${timestamp}] - Backup successful using cp method" >> "$LOG_FILE"
+        fi
+        
+        # Clean up temp directory
+        sudo rm -rf "${tmp_backup_dir}"
+    else
+        echo "[\${timestamp}] - Insufficient space for cp method" >> "$LOG_FILE"
+    fi
+fi
+
+if [ "$backup_success" = false ]; then
+    echo "[\${timestamp}] ERROR: All backup methods failed" >> "$LOG_FILE"
+    # Cleanup any temporary files
+    sudo rm -f "\${backup_filename}.tmp"
+    sudo rm -f "\${wp_owner_directory}/\${db_filename}"
+    exit 1
 fi
 
 # Rename the temporary backup file to the actual name to indicate that the compression completed
 sudo mv "\${backup_filename}.tmp" "\${backup_filename}"
+
+# --- End Backup Logic ---
 
 echo "[\${timestamp}] - backup archive generated: "\${backup_filename}"" >> "$LOG_FILE"
 echo "[\${timestamp}] - Sending the backup file to remote location "\${rclone_remote}" using rclone" >> "$LOG_FILE"

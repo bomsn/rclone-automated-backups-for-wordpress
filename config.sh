@@ -95,7 +95,7 @@ else
 fi
 
 # Check if rclone is available
-if command -v rclone &>/dev/null; then
+if command -v rclone &>/dev/null || [ -f "/usr/bin/rclone" ] || [ -f "/usr/local/bin/rclone" ]; then
   echo -e "${GREEN}3. rclone is available.${RESET}"
 else
   echo -e "${RED}3. rclone is not available. Please install it before running the script.${RESET}"
@@ -104,8 +104,8 @@ else
   exit 1
 fi
 
-# Check if rclone is available
-if command -v restic &>/dev/null; then
+# Check if restic is available
+if command -v restic &>/dev/null || [ -f "/usr/bin/restic" ] || [ -f "/usr/local/bin/restic" ]; then
   echo -e "${GREEN}4. restic is available.${RESET}"
   RESTIC_AVAILABLE=true
 else

@@ -84,18 +84,17 @@ else
 fi
 
 # Check if wp cli is available
-if command -v wp &>/dev/null || [ -f "/usr/local/bin/wp" ]; then
+if command -v wp &>/dev/null; then
   echo -e "${GREEN}2. wp cli is available.${RESET}"
 else
   echo -e "${RED}2. wp cli is not available. Please install it before running the script.${RESET}"
-  echo -e "${RED}To install wp-cli, follow this guide:${RESET}"
-  echo -e "${RED}https://wp-cli.org/#installing${RESET}"
+  echo -e "${RED}To install on Ubuntu: ${RESET}${BOLD}${RED}sudo apt-get install wp-cli${RESET}"
   echo ""
   exit 1
 fi
 
 # Check if rclone is available
-if command -v rclone &>/dev/null || [ -f "/usr/bin/rclone" ] || [ -f "/usr/local/bin/rclone" ]; then
+if command -v rclone &>/dev/null; then
   echo -e "${GREEN}3. rclone is available.${RESET}"
 else
   echo -e "${RED}3. rclone is not available. Please install it before running the script.${RESET}"
@@ -104,8 +103,8 @@ else
   exit 1
 fi
 
-# Check if restic is available
-if command -v restic &>/dev/null || [ -f "/usr/bin/restic" ] || [ -f "/usr/local/bin/restic" ]; then
+# Check if rclone is available
+if command -v restic &>/dev/null; then
   echo -e "${GREEN}4. restic is available.${RESET}"
   RESTIC_AVAILABLE=true
 else

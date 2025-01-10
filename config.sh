@@ -86,9 +86,15 @@ fi
 # Check if wp cli is available
 if command -v wp &>/dev/null; then
   echo -e "${GREEN}2. wp cli is available.${RESET}"
+elif [ -f "/usr/local/bin/wp" ]; then
+  echo -e "${YELLOW}2. wp cli found in /usr/local/bin/wp. To make it available system-wide:${RESET}"
+  echo -e "${YELLOW}Run: ${RESET}${BOLD}${YELLOW}sudo ln -s /usr/local/bin/wp /usr/bin/wp${RESET}"
+  echo ""
+  exit 1
 else
   echo -e "${RED}2. wp cli is not available. Please install it before running the script.${RESET}"
-  echo -e "${RED}To install on Ubuntu: ${RESET}${BOLD}${RED}sudo apt-get install wp-cli${RESET}"
+  echo -e "${RED}To install wp-cli, follow this guide:${RESET}"
+  echo -e "${RED}https://wp-cli.org/#installing${RESET}"
   echo ""
   exit 1
 fi
@@ -96,17 +102,27 @@ fi
 # Check if rclone is available
 if command -v rclone &>/dev/null; then
   echo -e "${GREEN}3. rclone is available.${RESET}"
+elif [ -f "/usr/local/bin/rclone" ]; then
+  echo -e "${YELLOW}3. rclone found in /usr/local/bin/rclone. To make it available system-wide:${RESET}"
+  echo -e "${YELLOW}Run: ${RESET}${BOLD}${YELLOW}sudo ln -s /usr/local/bin/rclone /usr/bin/rclone${RESET}"
+  echo ""
+  exit 1
 else
   echo -e "${RED}3. rclone is not available. Please install it before running the script.${RESET}"
-  echo -e "${RED}To install from the official website: ${RESET}${BOLD}${RED}curl https://rclone.org/install.sh | sudo bash${RESET}"
+  echo -e "${RED}To install rclone, follow this guide:${RESET}"
+  echo -e "${RED}https://rclone.org/install/${RESET}"
   echo ""
   exit 1
 fi
 
-# Check if rclone is available
+# Check if restic is available
 if command -v restic &>/dev/null; then
   echo -e "${GREEN}4. restic is available.${RESET}"
   RESTIC_AVAILABLE=true
+elif [ -f "/usr/local/bin/restic" ]; then
+  echo -e "${YELLOW}4. restic found in /usr/local/bin/restic. To make it available system-wide:${RESET}"
+  echo -e "${YELLOW}Run: ${RESET}${BOLD}${YELLOW}sudo ln -s /usr/local/bin/restic /usr/bin/restic${RESET}"
+  RESTIC_AVAILABLE=false
 else
   echo -e "${YELLOW}4. restic is not available ( optional for incremental backups ).${RESET}"
   RESTIC_AVAILABLE=false

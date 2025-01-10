@@ -84,11 +84,12 @@ else
 fi
 
 # Check if wp cli is available
-if command -v wp &>/dev/null; then
+if command -v wp &>/dev/null || [ -f "/usr/local/bin/wp" ]; then
   echo -e "${GREEN}2. wp cli is available.${RESET}"
 else
   echo -e "${RED}2. wp cli is not available. Please install it before running the script.${RESET}"
-  echo -e "${RED}To install on Ubuntu: ${RESET}${BOLD}${RED}sudo apt-get install wp-cli${RESET}"
+  echo -e "${RED}To install wp-cli, follow this guide:${RESET}"
+  echo -e "${RED}https://wp-cli.org/#installing${RESET}"
   echo ""
   exit 1
 fi

@@ -833,17 +833,14 @@ EOF
             # Add the necessary commands for full backups (append to file, note >>)
             cat <<EOF >>"$script_path"
 
-# Get the wp installation folder owner and their home directory
+# Get the wp installation folder owner
 wp_owner=\$(sudo stat -c "%U" \${domain_path})
-wp_owner_directory=\$(sudo getent passwd \${wp_owner} | cut -d: -f6)
 
-# if we can't find the owner directory, use /tmp as fallback
-if [ -z "\${wp_owner_directory}" ] || [ ! -d "\${wp_owner_directory}" ]; then
-    wp_owner_directory="/tmp"
-fi
+# Use a dedicated temp directory for database backups
+wp_owner_directory="/tmp/wp_db_backup"
 
 echo "[\${timestamp}] - WP folder owner found: '\${wp_owner}'" >> "$LOG_FILE"
-echo "[\${timestamp}] - WP folder owner home directory found: '\${wp_owner_directory}'" >> "$LOG_FILE"
+echo "[\${timestamp}] - Using temp directory: '\${wp_owner_directory}'" >> "$LOG_FILE"
 
 # Create tmp directory with proper permissions if it doesn't exist
 if [ ! -d "\${wp_owner_directory}" ]; then
